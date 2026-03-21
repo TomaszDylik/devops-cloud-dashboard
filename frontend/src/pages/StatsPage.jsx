@@ -39,7 +39,7 @@ function StatsPage() {
 
         {stats && (
           <dl className="stats-grid">
-            <dt>Instance ID</dt>
+            <dt>Last Instance ID</dt>
             <dd>{stats.instanceId}</dd>
 
             <dt>Total Items</dt>

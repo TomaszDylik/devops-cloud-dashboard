@@ -3,7 +3,7 @@ const os = require('os');
 
 const app = express();
 const port = process.env.PORT || 3000;
-const instanceId = os.hostname();
+const instanceId = process.env.INSTANCE_ID || os.hostname();
 
 app.use(express.json());
 

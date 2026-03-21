@@ -1,0 +1,127 @@
+:root {
+  font-family: Segoe UI, Tahoma, Geneva, Verdana, sans-serif;
+  color: #10243e;
+  background: #eef2f7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.header {
+  background: #0d3b66;
+  color: #ffffff;
+  padding: 16px 20px;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.header nav {
+  margin-top: 10px;
+  display: flex;
+  gap: 16px;
+}
+
+.header a {
+  color: #ffffff;
+  text-decoration: none;
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+.header a.active,
+.header a:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.content {
+  padding: 20px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 16px;
+  border: 1px solid #d8dee8;
+  box-shadow: 0 2px 10px rgba(16, 36, 62, 0.08);
+}
+
+label {
+  display: block;
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+
+input {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  padding: 10px;
+  border: 1px solid #c6cfdb;
+  border-radius: 8px;
+}
+
+button {
+  border: none;
+  background: #1f7a8c;
+  color: white;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #b30000;
+  font-weight: 700;
+}
+
+.items-list {
+  list-style: none;
+  padding: 0;
+  margin: 14px 0 0;
+}
+
+.items-list li {
+  padding: 10px;
+  border: 1px solid #e0e6ef;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin-top: 14px;
+}
+
+.stats-grid dt {
+  font-weight: 700;
+}
+
+.stats-grid dd {
+  margin: 0;
+}

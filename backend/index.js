@@ -42,15 +42,27 @@ app.post('/items', (req, res) => {
 	return res.status(201).json(item);
 });
 
+app.get('/health', (req, res) => {
+	res.json({
+		status: 'ok',
+		uptime: Math.floor(process.uptime())
+	});
+});
+
 app.get('/stats', (req, res) => {
 	res.json({
 		instanceId,
 		totalItems: items.length,
 		totalRequests,
-		uptimeSeconds: Math.floor(process.uptime())
+		uptimeSeconds: Math.floor(process.uptime()),
+		serverTime: new Date().toISOString()
 	});
 });
 
-app.listen(port, () => {
-	console.log(`Backend API listening on port ${port}. Instance: ${instanceId}`);
-});
+if (require.main === module) {
+	app.listen(port, () => {
+		console.log(`Backend API listening on port ${port}. Instance: ${instanceId}`);
+	});
+}
+
+module.exports = app;

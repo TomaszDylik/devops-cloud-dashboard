@@ -50,6 +50,9 @@ function StatsPage() {
 
             <dt>Uptime (seconds)</dt>
             <dd>{stats.uptimeSeconds}</dd>
+
+            <dt>Server Time</dt>
+            <dd>{stats.serverTime}</dd>
           </dl>
         )}
       </div>

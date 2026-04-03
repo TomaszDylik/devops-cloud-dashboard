@@ -1,0 +1,547 @@
+=============================================================================
+ ODPOWIEDZI FORMULARZ – CZESC 2
+ Tryb deweloperski + Zarzadzanie woluminami
+=============================================================================
+
+
+=============================================
+ PYTANIE 1: Skrypt run_dev.sh
+=============================================
+
+--- PLIK: run_dev.sh (pelna zawartosc) ---
+
+#!/usr/bin/env bash
+# =============================================================================
+# run_dev.sh – uruchamia backend w trybie deweloperskim z hot-reload
+#
+# Bind mount kodu z hosta (./backend) do kontenera.
+# nodemon obserwuje zmiany w index.js i automatycznie restartuje proces.
+# Nie wymaga docker build przy zmianie kodu.
+# =============================================================================
+set -euo pipefail
+
+NETWORK="dashboard-net"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Usun stary kontener deweloperski jesli istnieje
+docker rm -f backend-dev 2>/dev/null || true
+
+# Upewnij sie ze siec istnieje (postgres i redis musza dzialac)
+docker network create "${NETWORK}" 2>/dev/null || true
+
+# Sprawdz czy postgres i redis dzialaja
+if ! docker ps --format '{{.Names}}' | grep -q '^postgres$'; then
+  echo "BLAD: Kontener postgres nie dziala. Uruchom najpierw ./start.sh" >&2
+  exit 1
+fi
+if ! docker ps --format '{{.Names}}' | grep -q '^redis$'; then
+  echo "BLAD: Kontener redis nie dziala. Uruchom najpierw ./start.sh" >&2
+  exit 1
+fi
+
+echo "============================================="
+echo " Backend DEV mode (hot-reload via nodemon)"
+echo "============================================="
+echo ""
+echo " Bind mount: ${SCRIPT_DIR}/backend -> /app"
+echo " nodemon obserwuje zmiany w /app/index.js"
+echo " Zmien index.js na hoście -> backend restartuje sie automatycznie"
+echo ""
+
+# Uruchom kontener deweloperski:
+# - node:20-alpine jako bazowy obraz (nie nasz produkcyjny)
+# - bind mount calego katalogu backend/ z hosta do /app w kontenerze
+# - instaluje nodemon globalnie i zaleznosci, potem uruchamia nodemon
+# - dziala w trybie interaktywnym (-it) aby widziec logi na biezaco
+docker run -it --rm \
+  --name backend-dev \
+  --network "${NETWORK}" \
+  -p 3000:3000 \
+  -e POSTGRES_HOST=postgres \
+  -e POSTGRES_DB=dashboard \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e REDIS_HOST=redis \
+  -v "${SCRIPT_DIR}/backend:/app" \
+  -w /app \
+  node:20-alpine \
+  sh -c "npm install --include=dev && npx nodemon --watch index.js --ext js index.js"
+
+--- KONIEC PLIKU ---
+
+
+--- WYJASNIENIE DZIALANIA run_dev.sh ---
+
+1. BIND MOUNT: Skrypt montuje katalog ./backend z hosta do /app w kontenerze
+   za pomoca flagi -v "${SCRIPT_DIR}/backend:/app". Dzieki temu pliki na 
+   hoście i w kontenerze sa te same — zmiana na hoście jest natychmiast 
+   widoczna w kontenerze.
+
+2. HOT-RELOAD: Uzywa nodemon (npx nodemon) — narzedzia ktore obserwuje 
+   zmiany w plikach (--watch index.js --ext js) i automatycznie restartuje 
+   proces Node.js gdy wykryje zmiane. Programista edytuje plik na hoście, 
+   nodemon w kontenerze widzi zmiane poprzez bind mount i restartuje serwer.
+
+3. ROZNICA DEV vs PROD:
+   - DEV (run_dev.sh): Uzywa generycznego obrazu node:20-alpine, montuje 
+     kod z hosta (bind mount), uruchamia nodemon. Nie wymaga docker build 
+     przy zmianie kodu. Kod NIE jest kopiowany do obrazu.
+   - PROD (start.sh): Uzywa zbudowanego obrazu z Dockerfile, kod jest 
+     KOPIOWANY do obrazu (COPY . /app), uruchamia node index.js. 
+     Wymaga przebudowania obrazu (docker build) przy kazdej zmianie kodu.
+     Kontener produkcyjny nie ma dostepu do systemu plikow hosta.
+
+4. WERYFIKACJA HOT-RELOAD:
+   # Terminal 1 – uruchom tryb deweloperski:
+   ./run_dev.sh
+
+   # Terminal 2 – zmien wiadomosc w API:
+   # Edytuj backend/index.js, np. zmien tekst w /health endpoint
+   # W terminalu 1 zobaczysz: "[nodemon] restarting due to changes..."
+
+
+=============================================
+ PYTANIE 2: Skrypt backup.sh
+=============================================
+
+--- PLIK: backup.sh (pelna zawartosc) ---
+
+#!/usr/bin/env bash
+# =============================================================================
+# backup.sh – tworzy backup woluminu pg-data (PostgreSQL) do archiwum .tar.gz
+#
+# Uzywa kontenera alpine do zamontowania woluminu i spakowania jego zawartosci.
+# Kopie zapisywane w ./backups/ z sygnatura czasowa.
+# =============================================================================
+set -euo pipefail
+
+VOLUME_NAME="pg-data"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKUP_DIR="${SCRIPT_DIR}/backups"
+TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+BACKUP_FILE="pg-backup-${TIMESTAMP}.tar.gz"
+
+# Sprawdz czy wolumin istnieje
+if ! docker volume inspect "${VOLUME_NAME}" >/dev/null 2>&1; then
+  echo "BLAD: Wolumin ${VOLUME_NAME} nie istnieje." >&2
+  exit 1
+fi
+
+# Utworz katalog backups/ jesli nie istnieje
+mkdir -p "${BACKUP_DIR}"
+
+echo "============================================="
+echo " Backup woluminu: ${VOLUME_NAME}"
+echo "============================================="
+echo ""
+echo " Plik docelowy: backups/${BACKUP_FILE}"
+echo ""
+
+# Zamontuj wolumin i katalog backups/ w kontenerze alpine,
+# spakuj zawartosc woluminu do archiwum tar.gz
+docker run --rm \
+  -v "${VOLUME_NAME}:/data:ro" \
+  -v "${BACKUP_DIR}:/backup" \
+  alpine \
+  tar czf "/backup/${BACKUP_FILE}" -C /data .
+
+# Sprawdz czy plik zostal utworzony
+if [ -f "${BACKUP_DIR}/${BACKUP_FILE}" ]; then
+  SIZE=$(du -h "${BACKUP_DIR}/${BACKUP_FILE}" | cut -f1)
+  echo "Backup GOTOWY: backups/${BACKUP_FILE} (${SIZE})"
+else
+  echo "BLAD: Backup nie zostal utworzony." >&2
+  exit 1
+fi
+
+--- KONIEC PLIKU ---
+
+
+--- WYJASNIENIE DZIALANIA backup.sh ---
+
+1. Sprawdza czy wolumin pg-data istnieje (docker volume inspect).
+2. Tworzy katalog backups/ w katalogu projektu.
+3. Uruchamia tymczasowy kontener alpine (--rm = usun po zakonczeniu) z:
+   - woluminem pg-data zamontowanym jako /data (tylko do odczytu :ro)
+   - katalogiem backups/ zamontowanym jako /backup (zapis)
+4. W kontenerze: tar czf pakuje zawartosc /data do pliku .tar.gz z 
+   sygnatura czasowa w nazwie (np. pg-backup-20250607_183000.tar.gz).
+5. Weryfikuje czy plik zostal utworzony i wyswietla jego rozmiar.
+
+PRZYKLADOWE WYJSCIE:
+  $ ./backup.sh
+  =============================================
+   Backup woluminu: pg-data
+  =============================================
+   Plik docelowy: backups/pg-backup-20250607_183045.tar.gz
+  Backup GOTOWY: backups/pg-backup-20250607_183045.tar.gz (3.2M)
+
+
+=============================================
+ PYTANIE 3: Skrypt restore.sh
+=============================================
+
+--- PLIK: restore.sh (pelna zawartosc) ---
+
+#!/usr/bin/env bash
+# =============================================================================
+# restore.sh – przywraca backup woluminu pg-data z archiwum .tar.gz
+#
+# Uzycie: ./restore.sh backups/pg-backup-YYYYMMDD_HHMMSS.tar.gz
+#
+# 1. Zatrzymuje kontener postgres (jesli dziala)
+# 2. Czysci wolumin pg-data
+# 3. Rozpakowuje archiwum do woluminu
+# 4. Restartuje postgres
+# 5. Weryfikuje dostepnosc bazy danych
+# =============================================================================
+set -euo pipefail
+
+VOLUME_NAME="pg-data"
+NETWORK="dashboard-net"
+
+# Sprawdz argument
+if [ $# -lt 1 ]; then
+  echo "Uzycie: $0 <sciezka-do-backupu.tar.gz>" >&2
+  echo "Przyklad: $0 backups/pg-backup-20250101_120000.tar.gz" >&2
+  exit 1
+fi
+
+BACKUP_PATH="$1"
+
+if [ ! -f "${BACKUP_PATH}" ]; then
+  echo "BLAD: Plik ${BACKUP_PATH} nie istnieje." >&2
+  exit 1
+fi
+
+# Uzyj sciezki bezwzglednej
+BACKUP_FULL="$(cd "$(dirname "${BACKUP_PATH}")" && pwd)/$(basename "${BACKUP_PATH}")"
+
+echo "============================================="
+echo " Przywracanie backupu do woluminu: ${VOLUME_NAME}"
+echo "============================================="
+echo ""
+echo " Plik zrodlowy: ${BACKUP_PATH}"
+echo ""
+
+# 1. Zatrzymaj postgres jesli dziala
+if docker ps --format '{{.Names}}' | grep -q '^postgres$'; then
+  echo "[1/5] Zatrzymywanie kontenera postgres..."
+  docker stop postgres >/dev/null
+  docker rm postgres >/dev/null 2>&1 || true
+else
+  echo "[1/5] Kontener postgres nie dziala - pomijam zatrzymanie."
+  docker rm postgres >/dev/null 2>&1 || true
+fi
+
+# 2. Usun stary wolumin i stworz na nowo (czysta kopia)
+echo "[2/5] Czyszczenie woluminu ${VOLUME_NAME}..."
+docker volume rm "${VOLUME_NAME}" 2>/dev/null || true
+docker volume create "${VOLUME_NAME}" >/dev/null
+
+# 3. Rozpakuj archiwum do woluminu
+echo "[3/5] Rozpakowywanie backupu do woluminu..."
+docker run --rm \
+  -v "${VOLUME_NAME}:/data" \
+  -v "${BACKUP_FULL}:/backup.tar.gz:ro" \
+  alpine \
+  sh -c "tar xzf /backup.tar.gz -C /data"
+
+# 4. Uruchom postgres z przywroconym woluminem
+echo "[4/5] Uruchamianie kontenera postgres..."
+docker network create "${NETWORK}" 2>/dev/null || true
+docker run -d \
+  --name postgres \
+  --network "${NETWORK}" \
+  -e POSTGRES_DB=dashboard \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -v "${VOLUME_NAME}:/var/lib/postgresql/data" \
+  postgres:16-alpine >/dev/null
+
+# 5. Weryfikacja dostepnosci bazy
+echo "[5/5] Weryfikacja dostepnosci bazy danych..."
+RETRIES=15
+for i in $(seq 1 $RETRIES); do
+  if docker exec postgres pg_isready -U postgres >/dev/null 2>&1; then
+    echo ""
+    echo "Przywracanie GOTOWE. Baza danych jest dostepna."
+
+    # Pokaz zawartosc tabeli items (jesli istnieje)
+    echo ""
+    echo "Zawartosc tabeli items:"
+    docker exec postgres psql -U postgres -d dashboard \
+      -c "SELECT * FROM items;" 2>/dev/null || echo "(tabela items nie istnieje jeszcze)"
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "OSTRZEZENIE: Baza danych nie odpowiada po ${RETRIES}s. Sprawdz kontener: docker logs postgres" >&2
+exit 1
+
+--- KONIEC PLIKU ---
+
+
+--- WYJASNIENIE DZIALANIA restore.sh ---
+
+1. Przyjmuje sciezke do archiwum .tar.gz jako argument.
+2. Sprawdza czy plik istnieje — jesli nie, konczy z bledem.
+3. Zatrzymuje kontener postgres (jesli dziala) — konieczne, bo baza 
+   nie moze byc modyfikowana w trakcie zapisu danych.
+4. Usuwa stary wolumin pg-data i tworzy nowy (czysty).
+5. Uruchamia tymczasowy kontener alpine, montuje nowy wolumin i 
+   plik backupu, rozpakowuje archiwum.
+6. Startuje nowy kontener postgres z przywroconym woluminem.
+7. Weryfikuje dostepnosc bazy za pomoca pg_isready (proba co 1s, max 15 prob).
+8. Na koniec wyswietla zawartosc tabeli items jako dodatkowa weryfikacje.
+
+PRZYKLADOWE UZYCIE I WYJSCIE:
+  $ ./restore.sh backups/pg-backup-20250607_183045.tar.gz
+  =============================================
+   Przywracanie backupu do woluminu: pg-data
+  =============================================
+   Plik zrodlowy: backups/pg-backup-20250607_183045.tar.gz
+  [1/5] Zatrzymywanie kontenera postgres...
+  [2/5] Czyszczenie woluminu pg-data...
+  [3/5] Rozpakowywanie backupu do woluminu...
+  [4/5] Uruchamianie kontenera postgres...
+  [5/5] Weryfikacja dostepnosci bazy danych...
+  Przywracanie GOTOWE. Baza danych jest dostepna.
+  Zawartosc tabeli items:
+   id | name        | quantity
+  ----+-------------+----------
+    1 | Widget A    |       10
+    2 | Widget B    |        5
+
+
+=============================================
+ PYTANIE 4: Skrypt inspect_volumes.sh
+=============================================
+
+--- PLIK: inspect_volumes.sh (pelna zawartosc) ---
+
+#!/usr/bin/env bash
+# =============================================================================
+# inspect_volumes.sh – wyswietla informacje o woluminach Docker
+#
+# Dla kazdego woluminu uzywanego przez aplikacje pokazuje:
+# - Nazwe i mountpoint
+# - Rozmiar danych
+# - Kontenery korzystajace z woluminu
+# =============================================================================
+set -euo pipefail
+
+VOLUMES=("pg-data" "backend-logs")
+
+echo "============================================="
+echo " Inspekcja woluminow Docker"
+echo "============================================="
+echo ""
+
+for VOL in "${VOLUMES[@]}"; do
+  echo "---------------------------------------------"
+  echo " Wolumin: ${VOL}"
+  echo "---------------------------------------------"
+
+  # Sprawdz czy wolumin istnieje
+  if ! docker volume inspect "${VOL}" >/dev/null 2>&1; then
+    echo "  Status: NIE ISTNIEJE"
+    echo ""
+    continue
+  fi
+
+  # Mountpoint
+  MOUNTPOINT=$(docker volume inspect "${VOL}" --format '{{.Mountpoint}}')
+  echo "  Mountpoint: ${MOUNTPOINT}"
+
+  # Data utworzenia
+  CREATED=$(docker volume inspect "${VOL}" --format '{{.CreatedAt}}')
+  echo "  Utworzony:   ${CREATED}"
+
+  # Rozmiar danych (przez kontener alpine)
+  SIZE=$(docker run --rm -v "${VOL}:/data:ro" alpine du -sh /data 2>/dev/null | cut -f1)
+  echo "  Rozmiar:    ${SIZE}"
+
+  # Kontenery korzystajace z tego woluminu
+  CONTAINERS=$(docker ps -a --filter "volume=${VOL}" --format '{{.Names}} ({{.Status}})' 2>/dev/null)
+  if [ -n "${CONTAINERS}" ]; then
+    echo "  Kontenery:"
+    echo "${CONTAINERS}" | while read -r line; do
+      echo "    - ${line}"
+    done
+  else
+    echo "  Kontenery:  (brak)"
+  fi
+
+  # Zawartosc katalogu glownego woluminu (max 10 elementow)
+  echo "  Zawartosc (top-level):"
+  docker run --rm -v "${VOL}:/data:ro" alpine ls -la /data 2>/dev/null | head -12 | while read -r line; do
+    echo "    ${line}"
+  done
+
+  echo ""
+done
+
+# Dodatkowo pokaz tmpfs i bind mounty
+echo "---------------------------------------------"
+echo " Inne mounty (tmpfs / bind)"
+echo "---------------------------------------------"
+echo ""
+
+for CONTAINER in redis backend frontend backend-dev; do
+  if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
+    MOUNTS=$(docker inspect "${CONTAINER}" --format '{{range .Mounts}}{{.Type}}:{{.Source}}->{{.Destination}} {{end}}' 2>/dev/null)
+    if [ -n "${MOUNTS}" ]; then
+      echo "  ${CONTAINER}:"
+      for M in ${MOUNTS}; do
+        echo "    - ${M}"
+      done
+    fi
+  fi
+done
+
+echo ""
+echo "============================================="
+echo " Podsumowanie: docker volume ls"
+echo "============================================="
+docker volume ls --format "table {{.Name}}\t{{.Driver}}\t{{.Mountpoint}}" | head -20
+
+--- KONIEC PLIKU ---
+
+
+--- WYJASNIENIE DZIALANIA inspect_volumes.sh ---
+
+1. Iteruje po woluminach nazwaowanych: pg-data i backend-logs.
+2. Dla kazdego woluminu wyswietla:
+   - Mountpoint (docker volume inspect --format)
+   - Date utworzenia
+   - Rozmiar (uruchamia tymczasowy alpine z du -sh)
+   - Liste kontenerow uzywajacych tego woluminu (docker ps -a --filter volume=...)
+   - Zawartosc katalogu glownego (ls -la)
+3. Dodatkowo wyswietla tmpfs i bind mounty dla dzialajacych kontenerow 
+   (redis, backend, frontend, backend-dev) uzywajac docker inspect.
+4. Na koniec: docker volume ls jako ogolne podsumowanie.
+
+PRZYKLADOWE WYJSCIE:
+  $ ./inspect_volumes.sh
+  =============================================
+   Inspekcja woluminow Docker
+  =============================================
+  ---------------------------------------------
+   Wolumin: pg-data
+  ---------------------------------------------
+    Mountpoint: /var/lib/docker/volumes/pg-data/_data
+    Utworzony:   2025-06-07T18:30:00+02:00
+    Rozmiar:    40.2M
+    Kontenery:
+      - postgres (Up 5 minutes)
+    Zawartosc (top-level):
+      drwx------  19 70  70  4096 Jun  7 18:30 .
+      drwxr-xr-x   3 0   0  4096 Jun  7 18:30 ..
+      -rw-------   1 70  70     3 Jun  7 18:30 PG_VERSION
+      drwx------   6 70  70  4096 Jun  7 18:30 base
+      drwx------   2 70  70  4096 Jun  7 18:30 global
+      ...
+  ---------------------------------------------
+   Wolumin: backend-logs
+  ---------------------------------------------
+    Mountpoint: /var/lib/docker/volumes/backend-logs/_data
+    Utworzony:   2025-06-07T18:30:00+02:00
+    Rozmiar:    4.0K
+    Kontenery:
+      - backend (Up 5 minutes)
+    ...
+
+
+=============================================
+ PYTANIE 5: Komendy do weryfikacji
+=============================================
+
+# 1. Uruchomienie srodowiska produkcyjnego
+./start.sh
+
+# 2. Sprawdzenie czy dziala
+curl http://localhost:3000/health
+curl http://localhost:3000/items
+
+# 3. Dodanie danych testowych
+curl -X POST http://localhost:3000/items -H "Content-Type: application/json" -d '{"name":"Test Item","quantity":42}'
+
+# 4. Zatrzymanie kontenera produkcyjnego backendu
+docker stop backend && docker rm backend
+
+# 5. Uruchomienie trybu deweloperskiego
+./run_dev.sh
+
+# 6. Weryfikacja hot-reload:
+# W drugim terminalu zmien tekst w backend/index.js (np. port w logu)
+# W terminalu z run_dev.sh zobaczysz:
+#   [nodemon] restarting due to changes...
+#   [nodemon] starting `node index.js`
+#   Serwer nasłuchuje na porcie 3000
+
+# 7. Ctrl+C aby zakonczyc tryb deweloperski, potem restart produkcyjny:
+# (uruchom ponownie ./start.sh lub recznie: docker run ...)
+
+# 8. Backup danych
+./backup.sh
+ls -la backups/
+
+# 9. Usun dane (symulacja awarii)
+curl -X POST http://localhost:3000/items -H "Content-Type: application/json" -d '{"name":"Before Restore","quantity":99}'
+curl http://localhost:3000/items
+
+# 10. Przywrocenie backupu
+./restore.sh backups/pg-backup-XXXXXXXX_XXXXXX.tar.gz
+# (uzyj nazwy pliku z kroku 8)
+
+# 11. Restart backendu i weryfikacja przywroconych danych
+docker run -d --name backend --network dashboard-net -p 3000:3000 \
+  -e POSTGRES_HOST=postgres -e POSTGRES_DB=dashboard \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+  -e REDIS_HOST=redis \
+  -v backend-logs:/app/logs --tmpfs /tmp:rw,size=32m \
+  tomekdylik/devops-cloud-dashboard-backend:v2
+
+curl http://localhost:3000/items
+# Powinny byc TYLKO dane sprzed backupu (bez "Before Restore")
+
+# 12. Inspekcja woluminow
+./inspect_volumes.sh
+
+
+=============================================
+ PYTANIE 6: Lista commitow dla czesci 2
+=============================================
+
+Commit 1: feat: add run_dev.sh – developer mode with hot-reload
+Commit 2: feat: add backup.sh – PostgreSQL volume backup
+Commit 3: feat: add restore.sh – volume restore with verification
+Commit 4: feat: add inspect_volumes.sh – volume inspection tool
+Commit 5: docs: add ODPOWIEDZI_FORMULARZ_2.txt
+
+
+=============================================
+ PYTANIE 7: Roznica bind mount vs named volume
+=============================================
+
+BIND MOUNT:
+- Montuje konkretny katalog/plik z systemu hosta do kontenera.
+- Sciezka hosta musi istniec przed uruchomieniem kontenera.
+- Zmiany na hoście sa natychmiast widoczne w kontenerze i odwrotnie.
+- Uzycie: tryb deweloperski (hot-reload), konfiguracja (nginx.conf).
+- Przyklad: -v ./backend:/app (kod zrodlowy), -v ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf
+
+NAMED VOLUME:
+- Zarzadzany przez Docker, przechowywany w /var/lib/docker/volumes/.
+- Docker sam tworzy i zarzadza cyklem zycia — przezywa restart/usuniecie kontenera.
+- Lepsza wydajnosc niz bind mount (szczegolnie na macOS/Windows).
+- Uzycie: dane trwale (bazy danych), logi.
+- Przyklad: -v pg-data:/var/lib/postgresql/data, -v backend-logs:/app/logs
+
+TMPFS:
+- Przechowywany wylacznie w pamieci RAM.
+- Ulotny — dane znikaja po zatrzymaniu kontenera.
+- Uzycie: dane tymczasowe, cache, dane wrażliwe.
+- Przyklad: --tmpfs /data:rw,size=64m (Redis cache), --tmpfs /tmp:rw,size=32m

@@ -30,8 +30,10 @@ public class HealthController {
 
         boolean redisStatus = false;
         try {
-            String pong = redisTemplate.getConnectionFactory().getConnection().ping();
-            redisStatus = "PONG".equals(pong);
+            var factory = redisTemplate.getConnectionFactory();
+            if (factory != null) {
+                redisStatus = "PONG".equals(factory.getConnection().ping());
+            }
         } catch (Exception ignored) {}
 
         long uptime = ManagementFactory.getRuntimeMXBean().getUptime() / 1000;

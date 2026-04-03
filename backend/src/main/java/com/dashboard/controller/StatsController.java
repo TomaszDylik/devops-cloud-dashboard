@@ -2,7 +2,6 @@ package com.dashboard.controller;
 
 import com.dashboard.filter.RequestCounterFilter;
 import com.dashboard.repository.ItemRepository;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;

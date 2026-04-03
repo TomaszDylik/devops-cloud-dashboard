@@ -47,6 +47,7 @@ public class StatsController {
         }
     }
 
+    @SuppressWarnings("null")
     @GetMapping("/stats")
     public ResponseEntity<Map<String, Object>> stats() {
         // Try cache first

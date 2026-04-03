@@ -32,6 +32,7 @@ class ApiTest {
     @MockitoBean
     private StringRedisTemplate redisTemplate;
 
+    @SuppressWarnings("unused")
     @Autowired
     private RequestCounterFilter requestCounter;
 
@@ -49,6 +50,7 @@ class ApiTest {
                 .andExpect(jsonPath("$.redis").isBoolean());
     }
 
+    @SuppressWarnings("null")
     @Test
     void statsReturnsTotalRequestsAndServerTime() throws Exception {
         @SuppressWarnings("unchecked")

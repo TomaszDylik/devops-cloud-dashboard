@@ -16,9 +16,9 @@ public class RequestCounterFilter extends OncePerRequestFilter {
     private final AtomicLong totalRequests = new AtomicLong(0);
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request,
-                                    HttpServletResponse response,
-                                    FilterChain filterChain) throws ServletException, IOException {
+    protected void doFilterInternal(@SuppressWarnings("null") HttpServletRequest request,
+                                    @SuppressWarnings("null") HttpServletResponse response,
+                                    @SuppressWarnings("null") FilterChain filterChain) throws ServletException, IOException {
         totalRequests.incrementAndGet();
         filterChain.doFilter(request, response);
     }

@@ -29,10 +29,12 @@ public class ItemRepository {
         return item;
     };
 
+    @SuppressWarnings("null")
     public List<Item> findAll() {
         return jdbc.query("SELECT id, name, price, created_at FROM items ORDER BY id", ROW_MAPPER);
     }
 
+    @SuppressWarnings("null")
     public Item save(String name, BigDecimal price) {
         return jdbc.queryForObject(
                 "INSERT INTO items (name, price) VALUES (?, ?) RETURNING id, name, price, created_at",

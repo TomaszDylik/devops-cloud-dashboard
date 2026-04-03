@@ -1,16 +1,10 @@
-node_modules
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+target/
+.idea/
+*.iml
+.mvn/wrapper/maven-wrapper.jar
 .env
 .env.*
-coverage
 
-# Test files excluded from production context by default
-*.test.js
-**/*.test.js
-__tests__
-
-# Re-include backend unit tests so the Docker test stage can execute them
-!__tests__/
-!__tests__/api.test.js
+# IDE
+.vscode/
+*.swp

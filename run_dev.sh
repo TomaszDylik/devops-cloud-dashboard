@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run_dev.sh – uruchamia backend w trybie deweloperskim z hot-reload
+# run_dev.sh – uruchamia backend Java w trybie deweloperskim
 #
 # Bind mount kodu z hosta (./backend) do kontenera.
-# nodemon obserwuje zmiany w index.js i automatycznie restartuje proces.
-# Nie wymaga docker build przy zmianie kodu.
+# Maven kompiluje i uruchamia aplikacje Spring Boot.
 # =============================================================================
 set -euo pipefail
 
@@ -28,19 +27,13 @@ if ! docker ps --format '{{.Names}}' | grep -q '^redis$'; then
 fi
 
 echo "============================================="
-echo " Backend DEV mode (hot-reload via nodemon)"
+echo " Backend DEV mode (Spring Boot via Maven)"
 echo "============================================="
 echo ""
 echo " Bind mount: ${SCRIPT_DIR}/backend -> /app"
-echo " nodemon obserwuje zmiany w /app/index.js"
-echo " Zmien index.js na hoście -> backend restartuje sie automatycznie"
+echo " mvn spring-boot:run buduje i uruchamia aplikacje"
 echo ""
 
-# Uruchom kontener deweloperski:
-# - node:20-alpine jako bazowy obraz (nie nasz produkcyjny)
-# - bind mount calego katalogu backend/ z hosta do /app w kontenerze
-# - instaluje nodemon globalnie i zaleznosci, potem uruchamia nodemon
-# - dziala w trybie interaktywnym (-it) aby widziec logi na biezaco
 docker run -it --rm \
   --name backend-dev \
   --network "${NETWORK}" \
@@ -52,5 +45,5 @@ docker run -it --rm \
   -e REDIS_HOST=redis \
   -v "${SCRIPT_DIR}/backend:/app" \
   -w /app \
-  node:20-alpine \
-  sh -c "npm install --include=dev && npx nodemon --watch index.js --ext js index.js"
+  eclipse-temurin:21-jdk-alpine \
+  sh -c "apk add --no-cache maven && mvn spring-boot:run -B"

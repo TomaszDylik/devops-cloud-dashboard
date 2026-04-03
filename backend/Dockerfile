@@ -39,6 +39,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY index.js ./
 COPY package.json ./
 
+# Katalog na logi aplikacji (montowany jako named volume w uruchomieniu)
+RUN mkdir -p /app/logs && chown node:node /app/logs
+
 ENV NODE_ENV=$NODE_ENV
 
 USER node
@@ -46,7 +49,7 @@ USER node
 EXPOSE 3000
 
 # Sprawdzanie co 30s czy endpoint /health odpowiada poprawnie
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -qO- http://localhost:3000/health || exit 1
 
 CMD ["node", "index.js"]
